@@ -46,7 +46,7 @@ int XShmGetEventBase( Display* dpy ); // problems with g++?
 #include <sys/socket.h>
 
 #include <netinet/in.h>
-#include <errnos.h>
+#include <errno.h>
 #include <signal.h>
 
 #include "doomstat.h"
@@ -65,7 +65,9 @@ Colormap	X_cmap;
 Visual*		X_visual;
 GC		X_gc;
 XEvent		X_event;
-int		X_screen;
+int		X_screenId;
+Screen* X_screen;
+
 XVisualInfo	X_visualinfo;
 XImage*		image;
 int		X_width;
@@ -530,10 +532,12 @@ void I_ReadScreen (byte* scr)
 }
 
 
+#define NUM_COLORS	16777216
+
 //
 // Palette stuff.
 //
-static XColor	colors[256];
+static XColor	colors[NUM_COLORS];
 
 void UploadNewPalette(Colormap cmap, byte *palette)
 {
@@ -545,14 +549,14 @@ void UploadNewPalette(Colormap cmap, byte *palette)
 #ifdef __cplusplus
     if (X_visualinfo.c_class == PseudoColor && X_visualinfo.depth == 8)
 #else
-    if (X_visualinfo.class == PseudoColor && X_visualinfo.depth == 8)
+    if (X_visualinfo.class == TrueColor && X_visualinfo.depth == 24)
 #endif
 	{
 	    // initialize the colormap
 	    if (firstcall)
 	    {
 		firstcall = false;
-		for (i=0 ; i<256 ; i++)
+		for (i=0 ; i<NUM_COLORS ; i++)
 		{
 		    colors[i].pixel = i;
 		    colors[i].flags = DoRed|DoGreen|DoBlue;
@@ -560,18 +564,18 @@ void UploadNewPalette(Colormap cmap, byte *palette)
 	    }
 
 	    // set the X colormap entries
-	    for (i=0 ; i<256 ; i++)
+	    for (i=0 ; i<NUM_COLORS; i++)
 	    {
-		c = gammatable[usegamma][*palette++];
+		c = gammatable[usegamma][*palette++ % 256];
 		colors[i].red = (c<<8) + c;
-		c = gammatable[usegamma][*palette++];
+		c = gammatable[usegamma][*palette++ % 256];
 		colors[i].green = (c<<8) + c;
-		c = gammatable[usegamma][*palette++];
+		c = gammatable[usegamma][*palette++ % 256];
 		colors[i].blue = (c<<8) + c;
 	    }
 
 	    // store the colors to the current colormap
-	    XStoreColors(X_display, cmap, colors, 256);
+	    XStoreColors(X_display, cmap, colors, NUM_COLORS);
 
 	}
 }
@@ -581,7 +585,7 @@ void UploadNewPalette(Colormap cmap, byte *palette)
 //
 void I_SetPalette (byte* palette)
 {
-    UploadNewPalette(X_cmap, palette);
+    //UploadNewPalette(X_cmap, palette);
 }
 
 
@@ -767,13 +771,17 @@ void I_InitGraphics(void)
     }
 
     // use the default visual 
-    X_screen = DefaultScreen(X_display);
-    if (!XMatchVisualInfo(X_display, X_screen, 8, PseudoColor, &X_visualinfo))
-	I_Error("xdoom currently only supports 256-color PseudoColor screens");
+	X_screen = DefaultScreenOfDisplay(X_display);
+    X_screenId = DefaultScreen(X_display);
+	
+    if (!XMatchVisualInfo(X_display, X_screenId, 24, TrueColor, &X_visualinfo))
+		I_Error("xdoom currently only supports 256-color PseudoColor screens");
+	
     X_visual = X_visualinfo.visual;
 
     // check for the MITSHM extension
-    doShm = XShmQueryExtension(X_display);
+    doShm =  XShmQueryExtension(X_display);
+
 
     // even if it's available, make sure it's a local connection
     if (doShm)
@@ -792,7 +800,7 @@ void I_InitGraphics(void)
 
     // create the colormap
     X_cmap = XCreateColormap(X_display, RootWindow(X_display,
-						   X_screen), X_visual, AllocAll);
+						   X_screenId), X_visual, AllocNone);
 
     // setup attributes for main window
     attribmask = CWEventMask | CWColormap | CWBorderPixel;
@@ -806,17 +814,18 @@ void I_InitGraphics(void)
     attribs.border_pixel = 0;
 
     // create the main window
-    X_mainWindow = XCreateWindow(	X_display,
-					RootWindow(X_display, X_screen),
-					x, y,
-					X_width, X_height,
-					0, // borderwidth
-					8, // depth
-					InputOutput,
-					X_visual,
-					attribmask,
-					&attribs );
+   	X_mainWindow = XCreateWindow(	X_display,
+  					RootWindow(X_display, X_screenId),
+  					x, y,
+  					X_width, X_height,
+  					0, // borderwidth
+  					24, // depth
+  					InputOutput,
+  					X_visual,
+  					attribmask,
+  					&attribs );
 
+	XInstallColormap(X_display, X_cmap);
     XDefineCursor(X_display, X_mainWindow,
 		  createnullcursor( X_display, X_mainWindow ) );
 
@@ -829,7 +838,7 @@ void I_InitGraphics(void)
   			&xgcvalues );
 
     // map the window
-    XMapWindow(X_display, X_mainWindow);
+    XMapRaised(X_display, X_mainWindow);
 
     // wait until it is OK to draw
     oktodraw = 0;
@@ -858,7 +867,7 @@ void I_InitGraphics(void)
 	// create the image
 	image = XShmCreateImage(	X_display,
 					X_visual,
-					8,
+					24,
 					ZPixmap,
 					0,
 					&X_shminfo,
@@ -897,7 +906,7 @@ void I_InitGraphics(void)
     {
 	image = XCreateImage(	X_display,
     				X_visual,
-    				8,
+    				24,
     				ZPixmap,
     				0,
     				(char*)malloc(X_width * X_height),

@@ -4,16 +4,12 @@
 #
 # $Log:$
 #
-CC=  gcc  # gcc or g++
-
-CFLAGS=-g -Wall -DNORMALUNIX -DLINUX # -DUSEASM 
-LDFLAGS=-L/usr/X11R6/lib
-LIBS=-lXext -lX11 -lnsl -lm
-
-# subdirectory for objects
-O=linux
-
 # not too sophisticated dependency
+#
+#
+
+include ../config.mk
+
 OBJS=				\
 		$(O)/doomdef.o		\
 		$(O)/doomstat.o		\
@@ -77,17 +73,19 @@ OBJS=				\
 		$(O)/info.o				\
 		$(O)/sounds.o
 
-all:	 $(O)/linuxxdoom
+all:	 $(OUTDIR)/$(DOOM)
 
 clean:
 	rm -f *.o *~ *.flc
-	rm -f linux/*
+	rm -rf $(O)
+	rm -f $(OUTDIR)/$(DOOM)
 
-$(O)/linuxxdoom:	$(OBJS) $(O)/i_main.o
+$(OUTDIR)/$(DOOM):	$(OBJS) $(O)/i_main.o
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) $(O)/i_main.o \
-	-o $(O)/linuxxdoom $(LIBS)
+	-o $@ $(LIBS)
 
 $(O)/%.o:	%.c
+	mkdir -p $(dir $@) 
 	$(CC) $(CFLAGS) -c $< -o $@
 
 #############################################################
