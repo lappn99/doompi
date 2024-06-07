@@ -14,6 +14,7 @@ OBJS=				\
 		$(O)/doomdef.o		\
 		$(O)/doomstat.o		\
 		$(O)/dstrings.o		\
+		$(O)/gl.o			\
 		$(O)/i_system.o		\
 		$(O)/i_sound.o		\
 		$(O)/i_video.o		\
@@ -71,7 +72,8 @@ OBJS=				\
 		$(O)/s_sound.o		\
 		$(O)/z_zone.o			\
 		$(O)/info.o				\
-		$(O)/sounds.o
+		$(O)/sounds.o		
+		
 
 all:	 $(OUTDIR)/$(DOOM)
 

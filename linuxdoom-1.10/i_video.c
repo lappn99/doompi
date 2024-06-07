@@ -57,6 +57,9 @@ int XShmGetEventBase( Display* dpy ); // problems with g++?
 
 #include "doomdef.h"
 
+#include <GL/glx.h>
+#include "gl.h"
+
 #define POINTER_WARP_COUNTDOWN	1
 
 Display*	X_display=0;
@@ -68,7 +71,8 @@ XEvent		X_event;
 int		X_screenId;
 Screen* X_screen;
 
-XVisualInfo	X_visualinfo;
+
+XVisualInfo*	X_visualinfo;
 XImage*		image;
 int		X_width;
 int		X_height;
@@ -91,6 +95,22 @@ int		doPointerWarp = POINTER_WARP_COUNTDOWN;
 // to use ....
 static int	multiply=1;
 
+// GLX stuff
+
+GLint glxAttribs[] = {
+	GLX_RGBA,
+	GLX_DOUBLEBUFFER,
+	GLX_DEPTH_SIZE,		24,
+	GLX_STENCIL_SIZE,	8,
+	GLX_RED_SIZE,		8,
+	GLX_GREEN_SIZE,		8,
+	GLX_BLUE_SIZE,		8,
+	GLX_SAMPLE_BUFFERS,	0,
+	GLX_SAMPLES,		0,
+	None
+};
+
+GLXContext GLX_context;
 
 //
 //  Translates the key currently in X_event
@@ -549,7 +569,7 @@ void UploadNewPalette(Colormap cmap, byte *palette)
 #ifdef __cplusplus
     if (X_visualinfo.c_class == PseudoColor && X_visualinfo.depth == 8)
 #else
-    if (X_visualinfo.class == TrueColor && X_visualinfo.depth == 24)
+    if (X_visualinfo->class == TrueColor && X_visualinfo->depth == 24)
 #endif
 	{
 	    // initialize the colormap
@@ -721,13 +741,22 @@ void I_InitGraphics(void)
     signal(SIGINT, (void (*)(int)) I_Quit);
 
     if (M_CheckParm("-2"))
-	multiply = 2;
+	{
+		multiply = 2;
+	}
+		
 
     if (M_CheckParm("-3"))
-	multiply = 3;
+	{
+		multiply = 3;
+	}
+		
 
     if (M_CheckParm("-4"))
-	multiply = 4;
+	{
+		multiply = 4;
+	}
+	multiply = 2;
 
     X_width = SCREENWIDTH * multiply;
     X_height = SCREENHEIGHT * multiply;
@@ -770,14 +799,30 @@ void I_InitGraphics(void)
 	    I_Error("Could not open display (DISPLAY=[%s])", getenv("DISPLAY"));
     }
 
+	//Init OpenGL
+	GLint glXVerMajor, glXVerMinor;
+	glXQueryVersion(X_display, &glXVerMajor, &glXVerMinor);
+
+	if(glXVerMajor < 1 && glXVerMinor < 2)
+	{
+		XCloseDisplay(X_display);
+		I_Error("GLX 1.2 or greate is required\n");
+		
+	}
+
+	
+
     // use the default visual 
 	X_screen = DefaultScreenOfDisplay(X_display);
     X_screenId = DefaultScreen(X_display);
+	X_visualinfo = glXChooseVisual(X_display, X_screenId, glxAttribs);
+    
+	if(X_visualinfo == NULL)
+	{
+		I_Error("Could not get visual. 24 bit screen is required");
+	}
 	
-    if (!XMatchVisualInfo(X_display, X_screenId, 24, TrueColor, &X_visualinfo))
-		I_Error("xdoom currently only supports 256-color PseudoColor screens");
-	
-    X_visual = X_visualinfo.visual;
+    X_visual = X_visualinfo->visual;
 
     // check for the MITSHM extension
     doShm =  XShmQueryExtension(X_display);
@@ -803,7 +848,7 @@ void I_InitGraphics(void)
 						   X_screenId), X_visual, AllocNone);
 
     // setup attributes for main window
-    attribmask = CWEventMask | CWColormap | CWBorderPixel;
+    attribmask =  CWBackPixel | CWColormap | CWBorderPixel | CWEventMask;
     attribs.event_mask =
 	KeyPressMask
 	| KeyReleaseMask
@@ -811,7 +856,10 @@ void I_InitGraphics(void)
 	| ExposureMask;
 
     attribs.colormap = X_cmap;
+	attribs.override_redirect = True;
+
     attribs.border_pixel = 0;
+
 
     // create the main window
    	X_mainWindow = XCreateWindow(	X_display,
@@ -819,7 +867,7 @@ void I_InitGraphics(void)
   					x, y,
   					X_width, X_height,
   					0, // borderwidth
-  					24, // depth
+  					X_visualinfo->depth, // depth
   					InputOutput,
   					X_visual,
   					attribmask,
@@ -829,6 +877,12 @@ void I_InitGraphics(void)
     XDefineCursor(X_display, X_mainWindow,
 		  createnullcursor( X_display, X_mainWindow ) );
 
+	GLX_context = glXCreateContext(X_display, X_visualinfo, NULL, GL_TRUE);
+	if(GLX_context == NULL)
+	{
+		I_Error("Could not create GLX context");
+	}
+	glXMakeCurrent(X_display, X_mainWindow, GLX_context);
     // create the GC
     valuemask = GCGraphicsExposures;
     xgcvalues.graphics_exposures = False;
@@ -837,8 +891,15 @@ void I_InitGraphics(void)
   			valuemask,
   			&xgcvalues );
 
+
+	GL_LoadFuncs();
+
     // map the window
     XMapRaised(X_display, X_mainWindow);
+
+	
+
+	
 
     // wait until it is OK to draw
     oktodraw = 0;
